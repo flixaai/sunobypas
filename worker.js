@@ -9,15 +9,43 @@ self.onmessage = async (event) => {
     try {
       self.postMessage({ status: 'loading', text: 'Menyiapkan sistem...', progress: 2 });
 
-      // 1. MEMANGGIL SCRIPT LOKAL (Yang sudah berhasil Anda upload ke GitHub)
+      let isLoaded = false;
+      let activeCdn = '';
+
       if (typeof self.FFmpegWASM === 'undefined') {
+        // PERCOBAAN 1: Baca file lokal (Tambahan ./ agar Vercel tidak bingung)
         try {
           self.postMessage({ status: 'loading', text: 'Memuat library lokal...', progress: 5 });
-          self.importScripts('ffmpeg.js');
-          self.importScripts('util.js');
+          self.importScripts('./ffmpeg.js');
+          self.importScripts('./util.js');
+          isLoaded = true;
+          activeCdn = 'local';
         } catch (err) {
-          throw new Error("Gagal memuat file lokal. Pastikan ffmpeg.js dan util.js sudah ada di GitHub.");
+          console.warn("Lokal gagal, mencoba server cadangan aman...");
         }
+
+        // PERCOBAAN 2: Jika lokal gagal (karena cache/Vercel), otomatis pakai CDN aman
+        if (!isLoaded) {
+          const safeCDNs = ['https://unpkg.com', 'https://cdn.jsdelivr.net/npm'];
+          for (let cdn of safeCDNs) {
+            try {
+              self.postMessage({ status: 'loading', text: `Menghubungkan ke ${cdn.split('/')[2]}...`, progress: 5 });
+              self.importScripts(`${cdn}/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js`);
+              self.importScripts(`${cdn}/@ffmpeg/util@0.12.1/dist/umd/util.js`);
+              isLoaded = true;
+              activeCdn = cdn;
+              break;
+            } catch (e) {
+              console.warn(`Gagal dari ${cdn}`);
+            }
+          }
+        }
+
+        if (!isLoaded) {
+          throw new Error("Sistem diblokir sepenuhnya oleh HP. Matikan AdBlock/DNS Pribadi.");
+        }
+      } else {
+        activeCdn = 'local';
       }
 
       self.postMessage({ status: 'loading', text: 'Inisialisasi mesin AI...', progress: 10 });
@@ -25,10 +53,12 @@ self.onmessage = async (event) => {
       const fetchFile = self.FFmpegUtil.fetchFile;
       
       if (!ffmpeg.loaded) {
-        // 2. JALUR PINTAS: coreURL pakai lokal, wasmURL pakai link luar (Anti-Blokir)
+        // Menentukan dari mana file core diambil (lokal atau luar)
+        let corePath = activeCdn === 'local' ? './ffmpeg-core.js' : `${activeCdn}/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js`;
+        
         await ffmpeg.load({
-          coreURL: 'ffmpeg-core.js', // Membaca file lokal di GitHub Anda
-          wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm', // Membaca file 30MB dari luar
+          coreURL: corePath,
+          wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm', // Wasm tetap dari luar karena 30MB
         });
       }
 
@@ -43,7 +73,7 @@ self.onmessage = async (event) => {
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
       // =====================================================================
-      // LOGIKA AUDIO DSP ASLI MILIK ANDA (TIDAK ADA YANG DIUBAH SAMA SEKALI)
+      // LOGIKA AUDIO DSP ASLI MILIK ANDA
       // =====================================================================
       let pitchShift = parseFloat(settings.pitch.replace(',', '.')) || 0;
       let tempoPct = (parseFloat(settings.tempo) || 100) / 100;
