@@ -2,59 +2,48 @@ self.onerror = function(e) {
   self.postMessage({ status: 'error', text: 'Error Sistem: ' + e.message, progress: 0 });
 };
 
-// TRIK RAHASIA: Mengunduh file sebagai Blob lokal untuk menembus blokir keamanan browser
-async function getBlobURL(url, mimeType) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Gagal fetch ${url}`);
-  const blob = await response.blob();
-  return URL.createObjectURL(new Blob([blob], { type: mimeType }));
-}
-
-async function loadFFmpeg() {
-  // Mengunduh script sebagai teks lalu dieksekusi (Bypass importScripts block)
-  const ffmpegRes = await fetch('https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js');
-  const ffmpegText = await ffmpegRes.text();
-  eval(ffmpegText);
-
-  const utilRes = await fetch('https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js');
-  const utilText = await utilRes.text();
-  eval(utilText);
-}
+// Variabel untuk menyimpan mesin agar tidak perlu download ulang jika memproses lagu kedua
+let ffmpegInstance = null;
+let fetchFileFn = null;
 
 self.onmessage = async (event) => {
   const { action, audioFile, settings } = event.data;
   
   if (action === 'PROCESS') {
     try {
-      self.postMessage({ status: 'loading', text: 'Mengunduh mesin (Anti-Blokir)...', progress: 5 });
+      self.postMessage({ status: 'loading', text: 'Menghubungkan ke server modern...', progress: 2 });
 
-      if (typeof self.FFmpegWASM === 'undefined') {
-        await loadFFmpeg();
-      }
-
-      self.postMessage({ status: 'loading', text: 'Inisialisasi mesin AI...', progress: 10 });
-      const ffmpeg = new self.FFmpegWASM.FFmpeg();
-      const fetchFile = self.FFmpegUtil.fetchFile;
-      
-      if (!ffmpeg.loaded) {
-        self.postMessage({ status: 'loading', text: 'Mempersiapkan Core & WASM...', progress: 12 });
-        // Mengubah Core & WASM menjadi file lokal (Blob) agar tidak diblokir
-        const coreURL = await getBlobURL('https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js', 'text/javascript');
-        const wasmURL = await getBlobURL('https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm', 'application/wasm');
+      // MENGGUNAKAN DYNAMIC IMPORT (Standar Resmi Anti-Blokir & Anti-Error Document)
+      if (!ffmpegInstance) {
+        self.postMessage({ status: 'loading', text: 'Mengunduh mesin AI...', progress: 5 });
         
-        await ffmpeg.load({ coreURL, wasmURL });
+        const ffmpegModule = await import('https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/esm/index.js');
+        const utilModule = await import('https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js');
+        
+        ffmpegInstance = new ffmpegModule.FFmpeg();
+        fetchFileFn = utilModule.fetchFile;
+
+        self.postMessage({ status: 'loading', text: 'Mempersiapkan Core & WASM...', progress: 10 });
+        await ffmpegInstance.load({
+          coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+          wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
+        });
+
+        ffmpegInstance.on('progress', ({ progress }) => {
+          let percent = Math.round(progress * 100);
+          if (percent > 100) percent = 100;
+          if (percent < 0) percent = 0;
+          self.postMessage({ status: 'processing', text: 'Memproses Audio...', progress: percent });
+        });
       }
 
-      ffmpeg.on('progress', ({ progress }) => {
-        let percent = Math.round(progress * 100);
-        if (percent > 100) percent = 100;
-        if (percent < 0) percent = 0;
-        self.postMessage({ status: 'processing', text: 'Memproses Audio...', progress: percent });
-      });
+      const ffmpeg = ffmpegInstance;
+      const fetchFile = fetchFileFn;
 
       self.postMessage({ status: 'processing', text: 'Membaca file audio...', progress: 15 });
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
+      // --- RUMUS MATEMATIKA DSP ---
       let pitchShift = parseFloat(settings.pitch.replace(',', '.')) || 0;
       let tempoPct = (parseFloat(settings.tempo) || 100) / 100;
       let rateMultiplier = Math.pow(2, pitchShift / 12);
