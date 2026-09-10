@@ -19,6 +19,9 @@ self.onmessage = async (event) => {
       self.postMessage({ status: 'processing', text: 'Reading audio...' });
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
+      // ==========================================
+      // TAHAP 1: BASIC DSP (Pitch, Tempo, Jitter, EQ)
+      // ==========================================
       let pitchShift = parseFloat(settings.pitch.replace(',', '.')) || 0;
       let tempoPct = (parseFloat(settings.tempo) || 100) / 100;
       let rateMultiplier = Math.pow(2, pitchShift / 12);
@@ -39,20 +42,47 @@ self.onmessage = async (event) => {
          audioFilters.push(`treble=g=${tilt},bass=g=${-tilt}`);
       }
       if (settings.eqNotch && settings.eqNotch !== '') audioFilters.push(`anequalizer=c0 f=${settings.eqNotch} w=100 g=-20`);
+      
+      // Fitur Normalize Peak
+      if (settings.normalize) audioFilters.push('loudnorm');
 
       let filterString = audioFilters.length > 0 ? audioFilters.join(',') : 'anull';
 
       self.postMessage({ status: 'processing', text: 'Applying DSP Mangling...' });
+      await ffmpeg.exec(['-i', 'input.wav', '-af', filterString, 'temp1.wav']);
+
+      // ==========================================
+      // TAHAP 2: VOCAL MANGLE & INSTRUMENTAL ONLY
+      // ==========================================
+      if (settings.instrumentalOnly === 'Hard') {
+         self.postMessage({ status: 'processing', text: 'Removing Vocals (Karaoke Mode)...' });
+         // Fitur Instrumental: Menghapus frekuensi tengah (vokal) secara ekstrem
+         await ffmpeg.exec(['-i', 'temp1.wav', '-af', 'pan=stereo|c0=c0-c1|c1=c1-c0', 'temp2.wav']);
+      } 
+      else if (settings.lyricBypass && !settings.isInstrumentalSong) {
+         self.postMessage({ status: 'processing', text: 'Mangling Vocal Stem (Lyric Bypass)...' });
+         // Fitur Lyric Bypass: Memisahkan vokal, merusaknya dengan flanger ekstrem agar AI Suno buta huruf, lalu menggabungnya lagi
+         const mangleFilter = `[0:a]asplit=2[mid][side];[mid]pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1500:width_type=h:w=2000,flanger=delay=10:depth=10:regen=0:width=71:speed=3:phase=25[vocal];[side]pan=stereo|c0=c0-c1|c1=c1-c0[inst];[inst][vocal]amix=inputs=2:duration=first[out]`;
+         await ffmpeg.exec(['-i', 'temp1.wav', '-filter_complex', mangleFilter, '-map', '[out]', 'temp2.wav']);
+      } 
+      else {
+         await ffmpeg.exec(['-i', 'temp1.wav', 'temp2.wav']);
+      }
+
+      // ==========================================
+      // TAHAP 3: VBR ENCODE & SUB-AUDIO INJECT
+      // ==========================================
+      self.postMessage({ status: 'processing', text: 'Finalizing Audio & VBR Encoding...' });
       let bitrate = settings.mp3Bitrate || '192';
       let vbrFlag = settings.vbrMode ? ['-q:a', '0'] : ['-b:a', `${bitrate}k`];
       
-      await ffmpeg.exec(['-i', 'input.wav', '-af', filterString, ...vbrFlag, '-ar', settings.sampleRate || '48000', 'temp.mp3']);
+      await ffmpeg.exec(['-i', 'temp2.wav', ...vbrFlag, '-ar', settings.sampleRate || '48000', 'temp.mp3']);
 
-      self.postMessage({ status: 'processing', text: 'Finalizing Audio...' });
       let subAudioGain = settings.subAudioGain || '-60';
       let subAudioFreq = parseFloat(settings.subAudioInject) || 0;
       
       if (subAudioFreq > 0) {
+        self.postMessage({ status: 'processing', text: 'Injecting Sub-audio...' });
         await ffmpeg.exec(['-i', 'temp.mp3', '-f', 'lavfi', '-i', `sine=frequency=${subAudioFreq}:sample_rate=48000`, '-filter_complex', `[1:a]volume=${subAudioGain}dB[sub];[0:a][sub]amix=inputs=2:duration=first`, 'output.wav']);
       } else {
         await ffmpeg.exec(['-i', 'temp.mp3', 'output.wav']);
