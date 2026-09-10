@@ -1,6 +1,5 @@
-// Penangkap Error Global (Mencegah mati diam-diam)
 self.onerror = function(e) {
-  self.postMessage({ status: 'error', text: 'Sistem Terhenti: ' + e.message, progress: 0 });
+  self.postMessage({ status: 'error', text: 'Error Sistem: ' + e.message, progress: 0 });
 };
 
 self.onmessage = async (event) => {
@@ -8,23 +7,38 @@ self.onmessage = async (event) => {
   
   if (action === 'PROCESS') {
     try {
-      self.postMessage({ status: 'loading', text: 'Memulai sistem...', progress: 2 });
+      self.postMessage({ status: 'loading', text: 'Menghubungkan ke server...', progress: 2 });
 
-      // Menggunakan UNPKG yang mendukung keamanan Vercel (require-corp)
+      // SISTEM ANTI-BLOKIR: Mencoba 3 server berbeda secara otomatis
       if (typeof self.FFmpegWASM === 'undefined') {
-        self.postMessage({ status: 'loading', text: 'Mengunduh mesin audio...', progress: 5 });
-        self.importScripts('https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js');
-        self.importScripts('https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js');
+        const cdns = ['https://cdn.jsdelivr.net/npm', 'https://unpkg.com', 'https://esm.sh'];
+        let isLoaded = false;
+        
+        for (let cdn of cdns) {
+          try {
+            self.postMessage({ status: 'loading', text: `Mencoba server ${cdn.split('/')[2]}...`, progress: 5 });
+            self.importScripts(`${cdn}/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js`);
+            self.importScripts(`${cdn}/@ffmpeg/util@0.12.1/dist/umd/util.js`);
+            isLoaded = true;
+            break; // Jika berhasil, langsung keluar dari loop
+          } catch (err) {
+            console.warn(`Server ${cdn} diblokir, mencoba yang lain...`);
+          }
+        }
+        
+        if (!isLoaded) {
+          throw new Error("Semua server diblokir oleh HP Anda. Tolong matikan AdBlock, VPN, atau coba gunakan koneksi WiFi lain.");
+        }
       }
 
-      self.postMessage({ status: 'loading', text: 'Inisialisasi mesin...', progress: 10 });
+      self.postMessage({ status: 'loading', text: 'Inisialisasi mesin AI...', progress: 10 });
       const ffmpeg = new self.FFmpegWASM.FFmpeg();
       const fetchFile = self.FFmpegUtil.fetchFile;
       
       if (!ffmpeg.loaded) {
         await ffmpeg.load({
-          coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-          wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
+          coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+          wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
         });
       }
 
