@@ -37,6 +37,13 @@ self.onmessage = async (event) => {
       const ffmpeg = new self.exports.FFmpegWASM.FFmpeg();
       const fetchFile = self.exports.fetchFile;
       
+      // PEREKAM LOG MESIN (Untuk menangkap pesan asli FFmpeg jika error)
+      let lastLog = "";
+      ffmpeg.on('log', ({ message }) => {
+        console.log(message);
+        lastLog = message;
+      });
+
       if (!ffmpeg.loaded) {
         self.postMessage({ status: 'loading', text: 'Memuat mesin AI...', progress: 10 });
         await ffmpeg.load({
@@ -57,9 +64,6 @@ self.onmessage = async (event) => {
       self.postMessage({ status: 'processing', text: currentStep, progress: 18 });
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
-      // =====================================================================
-      // LOGIKA AUDIO DSP ASLI MILIK ANDA
-      // =====================================================================
       let pitchShift = parseFloat(settings.pitch.replace(',', '.')) || 0;
       let tempoPct = (parseFloat(settings.tempo) || 100) / 100;
       let rateMultiplier = Math.pow(2, pitchShift / 12);
@@ -90,7 +94,7 @@ self.onmessage = async (event) => {
       let filterString = audioFilters.length > 0 ? audioFilters.join(',') : 'anull';
 
       // ---------------------------------------------------------
-      // TAHAP 1: FILTER AUDIO
+      // TAHAP 1
       // ---------------------------------------------------------
       currentStep = "Tahap 1: Menerapkan Filter DSP...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 20 });
@@ -105,15 +109,13 @@ self.onmessage = async (event) => {
            res1 = await ffmpeg.exec(['-i', 'input.wav', '-af', filterString, 'temp1.wav']);
         }
         if (res1 !== 0) throw new Error("Exit code: " + res1);
-        
-        // BERSIH-BERSIH RAM: Hapus input.wav karena sudah jadi temp1.wav
         await ffmpeg.deleteFile('input.wav'); 
       } catch (e) {
-        throw new Error("Crash di Tahap 1: " + (e.message || "Memori HP Penuh"));
+        throw new Error("Crash Tahap 1. LOG: " + lastLog + " | Pesan: " + e.message);
       }
 
       // ---------------------------------------------------------
-      // TAHAP 2: ENCODING MP3
+      // TAHAP 2
       // ---------------------------------------------------------
       currentStep = "Tahap 2: Encoding MP3 VBR...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 60 });
@@ -122,15 +124,13 @@ self.onmessage = async (event) => {
         let vbrFlag = settings.vbrMode ? ['-q:a', '0'] : ['-b:a', `${bitrate}k`];
         let res2 = await ffmpeg.exec(['-i', 'temp1.wav', ...vbrFlag, '-ar', settings.sampleRate || '48000', 'temp.mp3']);
         if (res2 !== 0) throw new Error("Exit code: " + res2);
-        
-        // BERSIH-BERSIH RAM: Hapus temp1.wav karena sudah jadi temp.mp3
         await ffmpeg.deleteFile('temp1.wav');
       } catch (e) {
-        throw new Error("Crash di Tahap 2: " + (e.message || "Memori HP Penuh"));
+        throw new Error("Crash Tahap 2. LOG: " + lastLog + " | Pesan: " + e.message);
       }
 
       // ---------------------------------------------------------
-      // TAHAP 3: FINALISASI & SUB-AUDIO
+      // TAHAP 3
       // ---------------------------------------------------------
       currentStep = "Tahap 3: Finalisasi File...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 80 });
@@ -145,18 +145,14 @@ self.onmessage = async (event) => {
           res3 = await ffmpeg.exec(['-i', 'temp.mp3', 'output.wav']);
         }
         if (res3 !== 0) throw new Error("Exit code: " + res3);
-        
-        // BERSIH-BERSIH RAM: Hapus temp.mp3 karena sudah jadi output.wav
         await ffmpeg.deleteFile('temp.mp3');
       } catch (e) {
-        throw new Error("Crash di Tahap 3: " + (e.message || "Memori HP Penuh"));
+        throw new Error("Crash Tahap 3. LOG: " + lastLog + " | Pesan: " + e.message);
       }
 
       currentStep = "Menyelesaikan file...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 95 });
       const data = await ffmpeg.readFile('output.wav');
-      
-      // BERSIH-BERSIH RAM TERAKHIR
       await ffmpeg.deleteFile('output.wav');
       
       self.postMessage({ status: 'done', resultBuffer: data.buffer, progress: 100 }, [data.buffer]);
