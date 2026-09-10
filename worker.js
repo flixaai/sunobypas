@@ -2,33 +2,34 @@ self.onerror = function(e) {
   self.postMessage({ status: 'error', text: 'Error Sistem: ' + e.message, progress: 0 });
 };
 
+// TRIK RAHASIA: Mengunduh file sebagai Blob lokal untuk menembus blokir keamanan browser
+async function getBlobURL(url, mimeType) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Gagal fetch ${url}`);
+  const blob = await response.blob();
+  return URL.createObjectURL(new Blob([blob], { type: mimeType }));
+}
+
+async function loadFFmpeg() {
+  // Mengunduh script sebagai teks lalu dieksekusi (Bypass importScripts block)
+  const ffmpegRes = await fetch('https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js');
+  const ffmpegText = await ffmpegRes.text();
+  eval(ffmpegText);
+
+  const utilRes = await fetch('https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js');
+  const utilText = await utilRes.text();
+  eval(utilText);
+}
+
 self.onmessage = async (event) => {
   const { action, audioFile, settings } = event.data;
   
   if (action === 'PROCESS') {
     try {
-      self.postMessage({ status: 'loading', text: 'Menghubungkan ke server...', progress: 2 });
+      self.postMessage({ status: 'loading', text: 'Mengunduh mesin (Anti-Blokir)...', progress: 5 });
 
-      // SISTEM ANTI-BLOKIR: Mencoba 3 server berbeda secara otomatis
       if (typeof self.FFmpegWASM === 'undefined') {
-        const cdns = ['https://cdn.jsdelivr.net/npm', 'https://unpkg.com', 'https://esm.sh'];
-        let isLoaded = false;
-        
-        for (let cdn of cdns) {
-          try {
-            self.postMessage({ status: 'loading', text: `Mencoba server ${cdn.split('/')[2]}...`, progress: 5 });
-            self.importScripts(`${cdn}/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js`);
-            self.importScripts(`${cdn}/@ffmpeg/util@0.12.1/dist/umd/util.js`);
-            isLoaded = true;
-            break; // Jika berhasil, langsung keluar dari loop
-          } catch (err) {
-            console.warn(`Server ${cdn} diblokir, mencoba yang lain...`);
-          }
-        }
-        
-        if (!isLoaded) {
-          throw new Error("Semua server diblokir oleh HP Anda. Tolong matikan AdBlock, VPN, atau coba gunakan koneksi WiFi lain.");
-        }
+        await loadFFmpeg();
       }
 
       self.postMessage({ status: 'loading', text: 'Inisialisasi mesin AI...', progress: 10 });
@@ -36,10 +37,12 @@ self.onmessage = async (event) => {
       const fetchFile = self.FFmpegUtil.fetchFile;
       
       if (!ffmpeg.loaded) {
-        await ffmpeg.load({
-          coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-          wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
-        });
+        self.postMessage({ status: 'loading', text: 'Mempersiapkan Core & WASM...', progress: 12 });
+        // Mengubah Core & WASM menjadi file lokal (Blob) agar tidak diblokir
+        const coreURL = await getBlobURL('https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js', 'text/javascript');
+        const wasmURL = await getBlobURL('https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm', 'application/wasm');
+        
+        await ffmpeg.load({ coreURL, wasmURL });
       }
 
       ffmpeg.on('progress', ({ progress }) => {
