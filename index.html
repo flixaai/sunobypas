@@ -34,7 +34,7 @@
       });
 
       useEffect(() => {
-        workerRef.current = new Worker('worker.js');
+        workerRef.current = new Worker('worker.js?v=' + new Date().getTime());
         workerRef.current.onmessage = (event) => {
           const { status, text, progress: prog, resultBuffer } = event.data;
           
