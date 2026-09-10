@@ -1,16 +1,11 @@
 // =====================================================================
-// TRIK MANIPULASI AGAR FFMPEG.JS TIDAK CRASH DI DALAM WORKER
+// MENGGUNAKAN FFMPEG LOKAL (DARI HOSTING VERCEL SENDIRI)
 // =====================================================================
-if (typeof document === 'undefined') {
-  self.document = { currentScript: { src: '' }, baseURI: self.location.href };
-}
-if (typeof window === 'undefined') {
-  self.window = self;
-}
-if (typeof exports === 'undefined') {
-  self.exports = self; // Mengatasi error "exports is not defined"
-}
-// =====================================================================
+const baseURL = self.location.origin;
+
+// Import script dari Vercel kita sendiri
+self.importScripts(baseURL + '/ffmpeg.js');
+self.importScripts(baseURL + '/util.js');
 
 self.onerror = function(e) {
   self.postMessage({ status: 'error', text: 'Error Sistem: ' + e.message, progress: 0 });
@@ -21,33 +16,22 @@ self.onmessage = async (event) => {
   
   if (action === 'PROCESS') {
     try {
-      self.postMessage({ status: 'loading', text: 'Menyiapkan sistem...', progress: 2 });
+      self.postMessage({ status: 'loading', text: 'Menyiapkan sistem lokal...', progress: 5 });
 
-      const baseURL = self.location.origin;
-
-      if (typeof self.FFmpegWASM === 'undefined') {
-        try {
-          self.postMessage({ status: 'loading', text: 'Memuat library lokal...', progress: 5 });
-          self.importScripts(baseURL + '/ffmpeg.js');
-          self.importScripts(baseURL + '/util.js');
-        } catch (err) {
-          throw new Error("Gagal membaca ffmpeg.js dari server. Error: " + err.message);
-        }
-      }
-
-      self.postMessage({ status: 'loading', text: 'Inisialisasi mesin AI...', progress: 10 });
       const ffmpeg = new self.FFmpegWASM.FFmpeg();
       const fetchFile = self.FFmpegUtil.fetchFile;
       
       if (!ffmpeg.loaded) {
         try {
-          self.postMessage({ status: 'loading', text: 'Memuat file AI (30MB)...', progress: 12 });
+          self.postMessage({ status: 'loading', text: 'Memuat mesin AI (30MB) dari Vercel...', progress: 10 });
+          
+          // Load core dari Vercel kita sendiri
           await ffmpeg.load({
             coreURL: baseURL + '/ffmpeg-core.js',
             wasmURL: baseURL + '/ffmpeg-core.wasm',
           });
         } catch (err) {
-          throw new Error("Gagal memuat ffmpeg-core.wasm dari server. Error: " + err.message);
+          throw new Error("Gagal memuat ffmpeg-core lokal. Error: " + err.message);
         }
       }
 
