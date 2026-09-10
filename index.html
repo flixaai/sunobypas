@@ -16,53 +16,80 @@
 
     function App() {
       const [file, setFile] = useState(null);
-      const [downloadUrl, setDownloadUrl] = useState(null);
       const [isProcessing, setIsProcessing] = useState(false);
       const [statusText, setStatusText] = useState('Anonymize it!');
-      const [isAdvancedOpen, setIsAdvancedOpen] = useState(true);
+      const [progress, setProgress] = useState(0);
+      const [history, setHistory] = useState([]); // State untuk Histori
       const workerRef = useRef(null);
 
+      // SETTINGAN LENGKAP SESUAI GAMBAR (Pitch default -2.5)
       const [settings, setSettings] = useState({
         preset: 'Moderate', instrumentalOnly: 'Off', isInstrumentalSong: false,
-        pitch: '-3.5', tempo: '102', sampleRate: '48000', eqNotch: '', reverbWet: '0',
-        silencePad: '0', normalize: true, autoDetectVocals: true, lyricBypass: true,
-        mp3Bitrate: '192', eqTiltMax: '0', eqTiltBands: '0', fullMixPitchJitter: '0',
-        jitterLFO: '0', sideChannelJitter: '0', sideChannelLFO: '0', peakSmearBands: '0',
-        peakSmearDepth: '0', peakSmearLFO: '0', subAudioInject: '0', subAudioGain: '-60', vbrMode: true
+        pitch: '-2.5', tempo: '102', sampleRate: '', eqNotch: '', 
+        reverbWet: '0', silencePad: '0', normalize: true, autoDetectVocals: true, 
+        lyricBypass: true, mp3Bitrate: '192', eqTiltMax: '0', eqTiltBands: '0', 
+        fullMixPitchJitter: '0', jitterLFO: '0', sideChannelJitter: '0', 
+        sideChannelLFO: '0', peakSmearBands: '0', peakSmearDepth: '0', 
+        peakSmearLFO: '0', subAudioInject: '0', subAudioGain: '-60', vbrMode: true
       });
 
       useEffect(() => {
         workerRef.current = new Worker('worker.js');
         workerRef.current.onmessage = (event) => {
-          const { status, text, resultBuffer } = event.data;
+          const { status, text, progress: prog, resultBuffer } = event.data;
+          
           if (status === 'loading' || status === 'processing') {
             setStatusText(text);
+            setProgress(prog || 0);
           } else if (status === 'done') {
             const blob = new Blob([resultBuffer], { type: 'audio/wav' });
-            setDownloadUrl(URL.createObjectURL(blob));
+            const url = URL.createObjectURL(blob);
+            
+            // Tambahkan ke Histori
+            setHistory(prev => [{
+              id: Date.now(),
+              name: `Anonymized_${file?.name || 'audio.wav'}`,
+              url: url
+            }, ...prev]);
+
             setIsProcessing(false);
-            setStatusText('Download Ready!');
+            setStatusText('Anonymize it!');
+            setProgress(0);
+            setFile(null); // Reset file input
           } else if (status === 'error') {
             alert('Proses Gagal: ' + text);
             setIsProcessing(false);
             setStatusText('Anonymize it!');
+            setProgress(0);
           }
         };
         return () => workerRef.current?.terminate();
-      }, []);
+      }, [file]);
 
       const handleProcess = () => {
         if (!file) return alert('Silakan upload file audio terlebih dahulu.');
         setIsProcessing(true);
-        setDownloadUrl(null);
+        setProgress(0);
         workerRef.current.postMessage({ action: 'PROCESS', audioFile: file, settings });
       };
 
       const handleSet = (key, val) => setSettings(p => ({ ...p, [key]: val }));
 
+      const InputField = ({ label, desc, keyName }) => (
+        <div>
+          <label className="text-xs font-bold text-gray-600 flex items-center gap-1">
+            <span className="text-gray-400">📊</span> {label}
+          </label>
+          <input type="text" value={settings[keyName]} onChange={e => handleSet(keyName, e.target.value)} className="w-full border border-gray-300 p-2 text-sm mt-1 bg-white rounded" />
+          {desc && <p className="text-[10px] text-gray-400 mt-1">{desc}</p>}
+        </div>
+      );
+
       return (
-        <div className="min-h-screen p-4 md:p-8">
-          <div className="mx-auto max-w-4xl bg-[#eeebe5] rounded-xl shadow-lg border border-gray-300 p-6 md:p-8">
+        <div className="min-h-screen p-4 md:p-8 max-w-5xl mx-auto flex flex-col gap-6">
+          
+          {/* KOTAK UTAMA */}
+          <div className="bg-[#eeebe5] rounded-xl shadow-lg border border-gray-300 p-6 md:p-8">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-2xl">🎵</span>
               <h1 className="text-2xl font-bold">Audio Anonymizer</h1>
@@ -76,6 +103,7 @@
               <p className="text-xs text-gray-400 mt-1">MP3, WAV, OGG, FLAC, M4A, AAC, WebM</p>
             </label>
 
+            {/* PRESET */}
             <div className="mb-4">
               <p className="text-xs font-bold text-gray-500 mb-2">PRESET</p>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -93,62 +121,96 @@
               </div>
             </label>
 
+            {/* ADVANCED SETTINGS LENGKAP */}
             <div className="border border-gray-300 rounded-md bg-[#fdfdfb] mb-6">
-              <button onClick={() => setIsAdvancedOpen(!isAdvancedOpen)} className="w-full flex items-center justify-between p-4 bg-gray-100 hover:bg-gray-200 transition rounded-t-md font-bold">
+              <div className="w-full flex items-center justify-between p-4 bg-gray-100 rounded-t-md font-bold border-b border-gray-200">
                 <span className="flex items-center gap-2">⚙️ Advanced settings</span>
-                <span>{isAdvancedOpen ? '▲' : '▼'}</span>
-              </button>
+              </div>
               
-              {isAdvancedOpen && (
-                <div className="p-4 border-t border-gray-200 space-y-4">
-                  <div>
-                     <p className="text-xs font-bold text-gray-600 mb-1">Instrumental only</p>
-                     <div className="flex bg-gray-100 p-1 rounded border">
-                        {['Off', 'Light', 'Hard'].map(l => (
-                          <button key={l} onClick={() => handleSet('instrumentalOnly', l)} className={`flex-1 text-sm py-1 rounded ${settings.instrumentalOnly === l ? 'bg-white shadow border font-bold text-green-700' : 'text-gray-500'}`}>{l}</button>
-                        ))}
-                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div><label className="text-xs font-bold text-gray-600">Pitch (semitones)</label><input type="text" value={settings.pitch} onChange={e => handleSet('pitch', e.target.value)} className="w-full border p-2 text-sm mt-1 bg-white" /></div>
-                    <div><label className="text-xs font-bold text-gray-600">Tempo (%, 100 = unchanged)</label><input type="text" value={settings.tempo} onChange={e => handleSet('tempo', e.target.value)} className="w-full border p-2 text-sm mt-1 bg-white" /></div>
-                    <div><label className="text-xs font-bold text-gray-600">Sample rate (Hz)</label><input type="text" value={settings.sampleRate} onChange={e => handleSet('sampleRate', e.target.value)} className="w-full border p-2 text-sm mt-1 bg-white" /></div>
-                    <div><label className="text-xs font-bold text-gray-600">EQ notch (Hz)</label><input type="text" value={settings.eqNotch} onChange={e => handleSet('eqNotch', e.target.value)} className="w-full border p-2 text-sm mt-1 bg-white" /></div>
-                  </div>
-
-                  <div className="space-y-3 py-3 border-y border-gray-200">
-                    <label className="flex items-center gap-2"><input type="checkbox" checked={settings.normalize} onChange={e => handleSet('normalize', e.target.checked)} /> <span className="text-sm">Normalize peak to 1.0</span></label>
-                    <label className="flex items-start gap-2"><input type="checkbox" checked={settings.autoDetectVocals} onChange={e => handleSet('autoDetectVocals', e.target.checked)} className="mt-1"/> <div><span className="text-sm">Auto-detect vocals before lyric bypass</span></div></label>
-                    <label className="flex items-start gap-2"><input type="checkbox" checked={settings.lyricBypass} onChange={e => handleSet('lyricBypass', e.target.checked)} className="mt-1"/> <div><span className="text-sm">Lyric-detection bypass (vocal stem mangle)</span></div></label>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     <div><label className="text-xs font-bold text-gray-600">MP3 round-trip bitrate</label><input type="text" value={settings.mp3Bitrate} onChange={e => handleSet('mp3Bitrate', e.target.value)} className="w-full border p-2 text-sm mt-1 bg-white" /></div>
-                     <div><label className="text-xs font-bold text-gray-600">EQ tilt max ±dB</label><input type="text" value={settings.eqTiltMax} onChange={e => handleSet('eqTiltMax', e.target.value)} className="w-full border p-2 text-sm mt-1 bg-white" /></div>
-                     <div><label className="text-xs font-bold text-gray-600">Jitter LFO (Hz)</label><input type="text" value={settings.jitterLFO} onChange={e => handleSet('jitterLFO', e.target.value)} className="w-full border p-2 text-sm mt-1 bg-white" /></div>
-                     <div><label className="text-xs font-bold text-gray-600">Side-channel jitter (cents)</label><input type="text" value={settings.sideChannelJitter} onChange={e => handleSet('sideChannelJitter', e.target.value)} className="w-full border p-2 text-sm mt-1 bg-white" /></div>
-                     <div><label className="text-xs font-bold text-gray-600">Peak smear depth (dB)</label><input type="text" value={settings.peakSmearDepth} onChange={e => handleSet('peakSmearDepth', e.target.value)} className="w-full border p-2 text-sm mt-1 bg-white" /></div>
-                     <div><label className="text-xs font-bold text-gray-600">Sub-audio inject (Hz)</label><input type="text" value={settings.subAudioInject} onChange={e => handleSet('subAudioInject', e.target.value)} className="w-full border p-2 text-sm mt-1 bg-white" /></div>
-                  </div>
-                  
-                  <label className="flex items-center gap-2"><input type="checkbox" checked={settings.vbrMode} onChange={e => handleSet('vbrMode', e.target.checked)} /> <span className="text-sm font-bold text-gray-700">MP3 round-trip: VBR mode</span></label>
+              <div className="p-4 space-y-6">
+                <div>
+                   <p className="text-xs font-bold text-gray-600 mb-1 flex items-center gap-1"><span className="text-gray-400">🎚️</span> Instrumental only</p>
+                   <div className="flex bg-gray-100 p-1 rounded border">
+                      {['Off', 'Light', 'Hard'].map(l => (
+                        <button key={l} onClick={() => handleSet('instrumentalOnly', l)} className={`flex-1 text-sm py-1 rounded ${settings.instrumentalOnly === l ? 'bg-white shadow border font-bold text-green-700' : 'text-gray-500'}`}>{l}</button>
+                      ))}
+                   </div>
+                   <p className="text-[10px] text-gray-400 mt-1">Light = center-channel vocal cancel. Hard = Demucs AI separation (desktop-only simulation).</p>
                 </div>
-              )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <InputField label="Pitch (semitones)" keyName="pitch" />
+                  <InputField label="Tempo (%, 100 = unchanged)" keyName="tempo" desc="Constant-pitch time-stretch." />
+                  <InputField label="Sample rate (Hz, blank = keep original)" keyName="sampleRate" />
+                  <InputField label="EQ notch (Hz, blank = off)" keyName="eqNotch" />
+                  <InputField label="Reverb wet (%)" keyName="reverbWet" />
+                  <InputField label="Silence pad (s)" keyName="silencePad" />
+                </div>
+
+                <div className="space-y-3 py-4 border-y border-gray-200">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={settings.normalize} onChange={e => handleSet('normalize', e.target.checked)} className="w-4 h-4 text-blue-600"/> <span className="text-sm font-medium">Normalize peak to 1.0</span></label>
+                  <label className="flex items-start gap-2"><input type="checkbox" checked={settings.autoDetectVocals} onChange={e => handleSet('autoDetectVocals', e.target.checked)} className="mt-1 w-4 h-4 text-blue-600"/> <div><span className="text-sm font-medium">Auto-detect vocals before lyric bypass</span><p className="text-[10px] text-gray-500">Runs a fast built-in detector on the decoded audio.</p></div></label>
+                  <label className="flex items-start gap-2"><input type="checkbox" checked={settings.lyricBypass} onChange={e => handleSet('lyricBypass', e.target.checked)} className="mt-1 w-4 h-4 text-blue-600"/> <div><span className="text-sm font-medium">Lyric-detection bypass (vocal stem mangle)</span><p className="text-[10px] text-gray-500">Downloads a ~300 MB separation model on first use, then splits vocals.</p></div></label>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   <InputField label="MP3 round-trip bitrate (kbps)" keyName="mp3Bitrate" desc="Encode -> decode through MP3 to perturb spectral peaks." />
+                   <InputField label="EQ tilt max ±dB (0 = off)" keyName="eqTiltMax" />
+                   <InputField label="EQ tilt bands (0 = off)" keyName="eqTiltBands" desc="Set an EQ tilt amount first." />
+                   <InputField label="Full-mix pitch jitter (cents, 0 = off)" keyName="fullMixPitchJitter" />
+                   <InputField label="Jitter LFO (Hz)" keyName="jitterLFO" desc="Set a full-mix jitter amount first." />
+                   <InputField label="Side-channel jitter (cents, 0 = off)" keyName="sideChannelJitter" desc="M/S Jitter — perturbs the L-R difference only." />
+                   <InputField label="Side-channel jitter LFO (Hz)" keyName="sideChannelLFO" desc="Set a side-channel jitter amount first." />
+                   <InputField label="Peak smear bands (0 = off)" keyName="peakSmearBands" desc="Narrow peaking-EQs whose centers slowly walk." />
+                   <InputField label="Peak smear depth (dB)" keyName="peakSmearDepth" desc="Set peak smear bands first." />
+                   <InputField label="Peak smear LFO (Hz)" keyName="peakSmearLFO" desc="Set peak smear bands first." />
+                   <InputField label="Sub-audio inject (Hz, 0 = off)" keyName="subAudioInject" desc="Adds an inaudible sub-bass tone + tiny DC bias." />
+                   <InputField label="Sub-audio inject gain (dB)" keyName="subAudioGain" desc="Set a sub-audio frequency first." />
+                </div>
+                
+                <label className="flex items-center gap-2 pt-2"><input type="checkbox" checked={settings.vbrMode} onChange={e => handleSet('vbrMode', e.target.checked)} className="w-4 h-4 text-blue-600"/> <span className="text-sm font-medium">MP3 round-trip: VBR mode</span></label>
+              </div>
             </div>
 
-            {!downloadUrl ? (
-              <button onClick={handleProcess} disabled={isProcessing} className={`w-full py-4 rounded-md text-lg font-bold border-2 transition-all ${isProcessing ? 'bg-gray-400 border-gray-500 text-white shadow-none translate-y-1' : 'bg-[#76b09c] border-[#3f6758] text-white shadow-[4px_4px_0px_#3f6758] hover:-translate-y-1 active:translate-y-[4px] active:shadow-none'}`}>
-                {statusText}
-              </button>
-            ) : (
-              <div className="bg-green-100 border-2 border-green-600 p-6 rounded-md text-center">
-                <h3 className="font-bold text-green-800 text-xl mb-4">✅ Anonymization Complete</h3>
-                <a href={downloadUrl} download={`Suno_Bypass_${file?.name || 'audio'}.wav`} className="inline-block px-8 py-3 bg-[#76b09c] text-white font-bold rounded-md shadow-[4px_4px_0px_#3f6758]">Download Now</a>
-                <button onClick={() => {setDownloadUrl(null); setFile(null);}} className="block mx-auto mt-4 text-sm font-bold text-gray-600 underline">Anonymize again</button>
+            {/* PROGRESS BAR & TOMBOL */}
+            {isProcessing && (
+              <div className="mb-4">
+                <div className="flex justify-between text-xs font-bold text-gray-600 mb-1">
+                  <span>{statusText}</span>
+                  <span>{progress}%</span>
+                </div>
+                <div className="w-full bg-gray-300 rounded-full h-3 overflow-hidden">
+                  <div className="bg-[#76b09c] h-3 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
+                </div>
               </div>
             )}
+
+            <button onClick={handleProcess} disabled={isProcessing} className={`w-full py-4 rounded-md text-lg font-bold transition-all ${isProcessing ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-[#76b09c] text-white hover:bg-[#5f9380]'}`}>
+              {isProcessing ? 'Processing...' : 'Anonymize it!'}
+            </button>
           </div>
+
+          {/* HISTORI & AUDIO PLAYER */}
+          {history.length > 0 && (
+            <div className="bg-white rounded-xl shadow-lg border border-gray-300 p-6">
+              <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><span>🕒</span> History & Downloads</h2>
+              <div className="space-y-4">
+                {history.map((item, index) => (
+                  <div key={item.id} className="flex flex-col md:flex-row items-center justify-between bg-gray-50 p-4 rounded border border-gray-200 gap-4">
+                    <div className="flex-1 w-full">
+                      <p className="font-bold text-sm text-gray-700 mb-2">{index + 1}. {item.name}</p>
+                      {/* AUDIO PLAYER */}
+                      <audio controls src={item.url} className="w-full h-10"></audio>
+                    </div>
+                    <a href={item.url} download={item.name} className="px-6 py-2 bg-blue-600 text-white text-sm font-bold rounded hover:bg-blue-700 whitespace-nowrap">
+                      ⬇️ Download
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
         </div>
       );
     }
