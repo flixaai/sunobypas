@@ -7,40 +7,17 @@ self.onmessage = async (event) => {
   
   if (action === 'PROCESS') {
     try {
-      self.postMessage({ status: 'loading', text: 'Menghubungkan ke server...', progress: 2 });
+      self.postMessage({ status: 'loading', text: 'Menyiapkan sistem...', progress: 2 });
 
-      // SISTEM ANTI-BLOKIR YANG DIPERBAIKI
-      // Menggunakan CDN yang stabil untuk format UMD (menghapus esm.sh agar tidak hang)
-      const cdns = [
-        'https://unpkg.com', 
-        'https://cdn.jsdelivr.net/npm', 
-        'https://fastly.jsdelivr.net/npm' // Jalur alternatif jika jsdelivr utama diblokir
-      ];
-      
-      let isLoaded = false;
-      let activeCdn = ''; // Menyimpan CDN mana yang berhasil tembus
-      
+      // 1. MEMANGGIL SCRIPT LOKAL (Yang sudah berhasil Anda upload ke GitHub)
       if (typeof self.FFmpegWASM === 'undefined') {
-        for (let cdn of cdns) {
-          try {
-            self.postMessage({ status: 'loading', text: `Mencoba server ${cdn.split('/')[2]}...`, progress: 5 });
-            self.importScripts(`${cdn}/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js`);
-            self.importScripts(`${cdn}/@ffmpeg/util@0.12.1/dist/umd/util.js`);
-            
-            isLoaded = true;
-            activeCdn = cdn; // Simpan CDN yang berhasil
-            break; // Berhasil, keluar dari loop
-          } catch (err) {
-            console.warn(`Server ${cdn} diblokir, mencoba yang lain...`);
-          }
+        try {
+          self.postMessage({ status: 'loading', text: 'Memuat library lokal...', progress: 5 });
+          self.importScripts('ffmpeg.js');
+          self.importScripts('util.js');
+        } catch (err) {
+          throw new Error("Gagal memuat file lokal. Pastikan ffmpeg.js dan util.js sudah ada di GitHub.");
         }
-        
-        if (!isLoaded) {
-          throw new Error("Semua server diblokir oleh HP Anda. Tolong matikan AdBlock, DNS Pribadi, atau gunakan WiFi.");
-        }
-      } else {
-        // Jika sudah pernah di-load sebelumnya di sesi yang sama
-        activeCdn = 'https://unpkg.com'; 
       }
 
       self.postMessage({ status: 'loading', text: 'Inisialisasi mesin AI...', progress: 10 });
@@ -48,10 +25,10 @@ self.onmessage = async (event) => {
       const fetchFile = self.FFmpegUtil.fetchFile;
       
       if (!ffmpeg.loaded) {
-        // PERBAIKAN: Gunakan activeCdn yang berhasil tembus, jangan di-hardcode ke jsdelivr
+        // 2. JALUR PINTAS: coreURL pakai lokal, wasmURL pakai link luar (Anti-Blokir)
         await ffmpeg.load({
-          coreURL: `${activeCdn}/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js`,
-          wasmURL: `${activeCdn}/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm`,
+          coreURL: 'ffmpeg-core.js', // Membaca file lokal di GitHub Anda
+          wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm', // Membaca file 30MB dari luar
         });
       }
 
