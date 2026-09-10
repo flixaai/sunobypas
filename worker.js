@@ -3,12 +3,10 @@ self.onmessage = async (event) => {
   
   if (action === 'PROCESS') {
     try {
-      // 1. Lapor ke UI bahwa proses dimulai
       self.postMessage({ status: 'loading', text: 'Memulai sistem...', progress: 2 });
 
-      // 2. Download mesin FFmpeg di DALAM blok pelacak error
       if (typeof self.FFmpegWASM === 'undefined') {
-        self.postMessage({ status: 'loading', text: 'Mengunduh mesin audio (Tunggu sebentar)...', progress: 5 });
+        self.postMessage({ status: 'loading', text: 'Mengunduh mesin audio...', progress: 5 });
         self.importScripts('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js');
         self.importScripts('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.js');
       }
@@ -24,7 +22,6 @@ self.onmessage = async (event) => {
         });
       }
 
-      // 3. Pelacak Progress Asli
       ffmpeg.on('progress', ({ progress }) => {
         let percent = Math.round(progress * 100);
         if (percent > 100) percent = 100;
@@ -35,11 +32,10 @@ self.onmessage = async (event) => {
       self.postMessage({ status: 'processing', text: 'Membaca file audio...', progress: 15 });
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
-      // --- RUMUS MATEMATIKA DSP ---
       let pitchShift = parseFloat(settings.pitch.replace(',', '.')) || 0;
       let tempoPct = (parseFloat(settings.tempo) || 100) / 100;
       let rateMultiplier = Math.pow(2, pitchShift / 12);
-      let newSampleRate = Math.round(48000 * rateMultiplier); // Pembulatan Anti-Crash
+      let newSampleRate = Math.round(48000 * rateMultiplier); 
       let atempoFix = tempoPct / rateMultiplier;
 
       let audioFilters = [];
@@ -98,7 +94,6 @@ self.onmessage = async (event) => {
       self.postMessage({ status: 'done', resultBuffer: data.buffer, progress: 100 }, [data.buffer]);
       
     } catch (error) {
-      // JIKA ADA ERROR, AKAN MUNCUL DI LAYAR HP ANDA
       self.postMessage({ status: 'error', text: error.message || String(error), progress: 0 });
     }
   }
