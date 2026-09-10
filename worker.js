@@ -1,9 +1,7 @@
-// Download mesin diletakkan di paling atas agar tidak diblokir browser
-self.importScripts('https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js');
-self.importScripts('https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js');
-
-const ffmpeg = new self.FFmpegWASM.FFmpeg();
-const fetchFile = self.FFmpegUtil.fetchFile;
+// Penangkap Error Global (Mencegah mati diam-diam)
+self.onerror = function(e) {
+  self.postMessage({ status: 'error', text: 'Sistem Terhenti: ' + e.message, progress: 0 });
+};
 
 self.onmessage = async (event) => {
   const { action, audioFile, settings } = event.data;
@@ -12,8 +10,18 @@ self.onmessage = async (event) => {
     try {
       self.postMessage({ status: 'loading', text: 'Memulai sistem...', progress: 2 });
 
-      if (!ffmpeg.loaded) {
+      // Menggunakan UNPKG yang mendukung keamanan Vercel (require-corp)
+      if (typeof self.FFmpegWASM === 'undefined') {
         self.postMessage({ status: 'loading', text: 'Mengunduh mesin audio...', progress: 5 });
+        self.importScripts('https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js');
+        self.importScripts('https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js');
+      }
+
+      self.postMessage({ status: 'loading', text: 'Inisialisasi mesin...', progress: 10 });
+      const ffmpeg = new self.FFmpegWASM.FFmpeg();
+      const fetchFile = self.FFmpegUtil.fetchFile;
+      
+      if (!ffmpeg.loaded) {
         await ffmpeg.load({
           coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
           wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
