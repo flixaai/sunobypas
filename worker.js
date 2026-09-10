@@ -2,10 +2,13 @@
 // TRIK MANIPULASI AGAR FFMPEG.JS TIDAK CRASH DI DALAM WORKER
 // =====================================================================
 if (typeof document === 'undefined') {
-  self.document = { currentScript: { src: '' } };
+  self.document = { currentScript: { src: '' }, baseURI: self.location.href };
 }
 if (typeof window === 'undefined') {
   self.window = self;
+}
+if (typeof exports === 'undefined') {
+  self.exports = self; // Mengatasi error "exports is not defined"
 }
 // =====================================================================
 
