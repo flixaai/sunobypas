@@ -9,43 +9,18 @@ self.onmessage = async (event) => {
     try {
       self.postMessage({ status: 'loading', text: 'Menyiapkan sistem...', progress: 2 });
 
-      let isLoaded = false;
-      let activeCdn = '';
+      // Mengambil alamat asli website Anda (contoh: https://sunobypas.vercel.app)
+      const baseURL = self.location.origin;
 
       if (typeof self.FFmpegWASM === 'undefined') {
-        // PERCOBAAN 1: Baca file lokal (Tambahan ./ agar Vercel tidak bingung)
         try {
           self.postMessage({ status: 'loading', text: 'Memuat library lokal...', progress: 5 });
-          self.importScripts('./ffmpeg.js');
-          self.importScripts('./util.js');
-          isLoaded = true;
-          activeCdn = 'local';
+          // Memanggil file murni dari server Anda sendiri
+          self.importScripts(baseURL + '/ffmpeg.js');
+          self.importScripts(baseURL + '/util.js');
         } catch (err) {
-          console.warn("Lokal gagal, mencoba server cadangan aman...");
+          throw new Error("Gagal membaca ffmpeg.js dari server. Error: " + err.message);
         }
-
-        // PERCOBAAN 2: Jika lokal gagal (karena cache/Vercel), otomatis pakai CDN aman
-        if (!isLoaded) {
-          const safeCDNs = ['https://unpkg.com', 'https://cdn.jsdelivr.net/npm'];
-          for (let cdn of safeCDNs) {
-            try {
-              self.postMessage({ status: 'loading', text: `Menghubungkan ke ${cdn.split('/')[2]}...`, progress: 5 });
-              self.importScripts(`${cdn}/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js`);
-              self.importScripts(`${cdn}/@ffmpeg/util@0.12.1/dist/umd/util.js`);
-              isLoaded = true;
-              activeCdn = cdn;
-              break;
-            } catch (e) {
-              console.warn(`Gagal dari ${cdn}`);
-            }
-          }
-        }
-
-        if (!isLoaded) {
-          throw new Error("Sistem diblokir sepenuhnya oleh HP. Matikan AdBlock/DNS Pribadi.");
-        }
-      } else {
-        activeCdn = 'local';
       }
 
       self.postMessage({ status: 'loading', text: 'Inisialisasi mesin AI...', progress: 10 });
@@ -53,13 +28,16 @@ self.onmessage = async (event) => {
       const fetchFile = self.FFmpegUtil.fetchFile;
       
       if (!ffmpeg.loaded) {
-        // Menentukan dari mana file core diambil (lokal atau luar)
-        let corePath = activeCdn === 'local' ? './ffmpeg-core.js' : `${activeCdn}/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js`;
-        
-        await ffmpeg.load({
-          coreURL: corePath,
-          wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm', // Wasm tetap dari luar karena 30MB
-        });
+        try {
+          self.postMessage({ status: 'loading', text: 'Memuat file AI (30MB)...', progress: 12 });
+          // Memanggil file core dan wasm murni dari server Anda sendiri
+          await ffmpeg.load({
+            coreURL: baseURL + '/ffmpeg-core.js',
+            wasmURL: baseURL + '/ffmpeg-core.wasm',
+          });
+        } catch (err) {
+          throw new Error("Gagal memuat ffmpeg-core.wasm dari server. Error: " + err.message);
+        }
       }
 
       ffmpeg.on('progress', ({ progress }) => {
