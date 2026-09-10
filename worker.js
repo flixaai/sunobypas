@@ -1,3 +1,18 @@
+// =====================================================================
+// TRIK MANIPULASI ENVIRONMENT (MENCEGAH ERROR "document is not defined")
+// =====================================================================
+if (typeof window === 'undefined') {
+  self.window = self;
+}
+if (typeof document === 'undefined') {
+  self.document = { 
+    currentScript: { src: '' }, 
+    baseURI: self.location.href,
+    createElement: function() { return {}; } // Tambahan pengaman
+  };
+}
+// =====================================================================
+
 self.onerror = function(e) {
   self.postMessage({ status: 'error', text: 'Fatal Worker Error: ' + (e.message || 'Unknown'), progress: 0 });
 };
@@ -7,13 +22,10 @@ self.onmessage = async (event) => {
   
   if (action === 'PROCESS') {
     try {
-      // Pesan pertama ini PASTI muncul jika Worker berhasil hidup
       self.postMessage({ status: 'loading', text: 'Memulai sistem Worker...', progress: 2 });
 
-      // Memanggil file dari Vercel (dipindah ke dalam try-catch agar aman)
       if (typeof self.FFmpegWASM === 'undefined') {
         self.postMessage({ status: 'loading', text: 'Membaca ffmpeg.js lokal...', progress: 5 });
-        // Menggunakan path relatif './' yang lebih stabil di Vercel
         self.importScripts('./ffmpeg.js');
         self.importScripts('./util.js');
       }
@@ -105,7 +117,6 @@ self.onmessage = async (event) => {
       self.postMessage({ status: 'done', resultBuffer: data.buffer, progress: 100 }, [data.buffer]);
       
     } catch (error) {
-      // Jika gagal, errornya akan ditangkap di sini dan dimunculkan ke layar HP!
       self.postMessage({ status: 'error', text: 'Error: ' + (error.message || String(error)), progress: 0 });
     }
   }
