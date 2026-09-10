@@ -1,32 +1,41 @@
+import { FFmpeg } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/esm/index.js';
+import { fetchFile } from 'https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js';
+
 self.onerror = function(e) {
   self.postMessage({ status: 'error', text: 'Error Sistem: ' + e.message, progress: 0 });
 };
 
-// Variabel untuk menyimpan mesin agar tidak perlu download ulang jika memproses lagu kedua
 let ffmpegInstance = null;
-let fetchFileFn = null;
+
+// TRIK RAHASIA: Mengubah file dari luar menjadi file lokal (Blob) agar tidak diblokir browser
+async function getBlobURL(url, mimeType) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Gagal mengunduh ${url}`);
+  const blob = await response.blob();
+  return URL.createObjectURL(new Blob([blob], { type: mimeType }));
+}
 
 self.onmessage = async (event) => {
   const { action, audioFile, settings } = event.data;
   
   if (action === 'PROCESS') {
     try {
-      self.postMessage({ status: 'loading', text: 'Menghubungkan ke server modern...', progress: 2 });
-
-      // MENGGUNAKAN DYNAMIC IMPORT (Standar Resmi Anti-Blokir & Anti-Error Document)
       if (!ffmpegInstance) {
         self.postMessage({ status: 'loading', text: 'Mengunduh mesin AI...', progress: 5 });
         
-        const ffmpegModule = await import('https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/esm/index.js');
-        const utilModule = await import('https://unpkg.com/@ffmpeg/util@0.12.1/dist/esm/index.js');
-        
-        ffmpegInstance = new ffmpegModule.FFmpeg();
-        fetchFileFn = utilModule.fetchFile;
+        ffmpegInstance = new FFmpeg();
 
         self.postMessage({ status: 'loading', text: 'Mempersiapkan Core & WASM...', progress: 10 });
+        
+        // Mengunduh semua komponen sebagai file lokal (Blob) untuk menembus blokir Cross-Origin
+        const classWorkerURL = await getBlobURL('https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/esm/worker.js', 'text/javascript');
+        const coreURL = await getBlobURL('https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js', 'text/javascript');
+        const wasmURL = await getBlobURL('https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm', 'application/wasm');
+
         await ffmpegInstance.load({
-          coreURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-          wasmURL: 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
+          classWorkerURL: classWorkerURL,
+          coreURL: coreURL,
+          wasmURL: wasmURL,
         });
 
         ffmpegInstance.on('progress', ({ progress }) => {
@@ -38,7 +47,6 @@ self.onmessage = async (event) => {
       }
 
       const ffmpeg = ffmpegInstance;
-      const fetchFile = fetchFileFn;
 
       self.postMessage({ status: 'processing', text: 'Membaca file audio...', progress: 15 });
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
