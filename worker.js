@@ -1,23 +1,30 @@
-importScripts('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js');
-importScripts('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.js');
-
-const ffmpeg = new FFmpegWASM.FFmpeg();
-const fetchFile = FFmpegUtil.fetchFile;
-
 self.onmessage = async (event) => {
   const { action, audioFile, settings } = event.data;
+  
   if (action === 'PROCESS') {
     try {
-      self.postMessage({ status: 'loading', text: 'Mengunduh Mesin Audio (Tunggu sebentar)...', progress: 2 });
+      // 1. Lapor ke UI bahwa proses dimulai
+      self.postMessage({ status: 'loading', text: 'Memulai sistem...', progress: 2 });
+
+      // 2. Download mesin FFmpeg di DALAM blok pelacak error
+      if (typeof self.FFmpegWASM === 'undefined') {
+        self.postMessage({ status: 'loading', text: 'Mengunduh mesin audio (Tunggu sebentar)...', progress: 5 });
+        self.importScripts('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js');
+        self.importScripts('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.js');
+      }
+
+      self.postMessage({ status: 'loading', text: 'Inisialisasi mesin...', progress: 10 });
+      const ffmpeg = new self.FFmpegWASM.FFmpeg();
+      const fetchFile = self.FFmpegUtil.fetchFile;
       
       if (!ffmpeg.loaded) {
-        const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
         await ffmpeg.load({
-          coreURL: `${baseURL}/ffmpeg-core.js`,
-          wasmURL: `${baseURL}/ffmpeg-core.wasm`,
+          coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+          wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
         });
       }
 
+      // 3. Pelacak Progress Asli
       ffmpeg.on('progress', ({ progress }) => {
         let percent = Math.round(progress * 100);
         if (percent > 100) percent = 100;
@@ -25,20 +32,17 @@ self.onmessage = async (event) => {
         self.postMessage({ status: 'processing', text: 'Memproses Audio...', progress: percent });
       });
 
-      self.postMessage({ status: 'processing', text: 'Membaca file audio...', progress: 5 });
+      self.postMessage({ status: 'processing', text: 'Membaca file audio...', progress: 15 });
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
-      // --- PERBAIKAN RUMUS MATEMATIKA DSP ---
+      // --- RUMUS MATEMATIKA DSP ---
       let pitchShift = parseFloat(settings.pitch.replace(',', '.')) || 0;
       let tempoPct = (parseFloat(settings.tempo) || 100) / 100;
       let rateMultiplier = Math.pow(2, pitchShift / 12);
-      
-      // PERBAIKAN: Membulatkan angka agar FFmpeg tidak Crash
-      let newSampleRate = Math.round(48000 * rateMultiplier); 
+      let newSampleRate = Math.round(48000 * rateMultiplier); // Pembulatan Anti-Crash
       let atempoFix = tempoPct / rateMultiplier;
 
       let audioFilters = [];
-      
       if (pitchShift !== 0 || tempoPct !== 1) audioFilters.push(`asetrate=${newSampleRate},atempo=${atempoFix}`);
       
       if (parseFloat(settings.jitterLFO) > 0 || parseFloat(settings.peakSmearDepth) > 0) {
@@ -55,15 +59,13 @@ self.onmessage = async (event) => {
          audioFilters.push(`treble=g=${tilt},bass=g=${-tilt}`);
       }
       if (settings.eqNotch && settings.eqNotch !== '') audioFilters.push(`anequalizer=c0 f=${settings.eqNotch} w=100 g=-20`);
-      
       if (parseFloat(settings.reverbWet) > 0) audioFilters.push(`aecho=0.8:0.9:1000:0.3`);
       if (parseFloat(settings.silencePad) > 0) audioFilters.push(`apad=pad_dur=${settings.silencePad}`);
-      
       if (settings.normalize) audioFilters.push('loudnorm');
 
       let filterString = audioFilters.length > 0 ? audioFilters.join(',') : 'anull';
 
-      self.postMessage({ status: 'processing', text: 'Menerapkan Filter DSP & Ekstraksi Vokal...', progress: 10 });
+      self.postMessage({ status: 'processing', text: 'Menerapkan Filter DSP...', progress: 20 });
       
       if (settings.instrumentalOnly === 'Hard' || settings.instrumentalOnly === 'Light') {
          await ffmpeg.exec(['-i', 'input.wav', '-af', 'pan=stereo|c0=c0-c1|c1=c1-c0', 'temp1.wav']);
@@ -74,7 +76,7 @@ self.onmessage = async (event) => {
          await ffmpeg.exec(['-i', 'input.wav', '-af', filterString, 'temp1.wav']);
       }
 
-      self.postMessage({ status: 'processing', text: 'Encoding MP3 VBR & Sub-audio...', progress: 50 });
+      self.postMessage({ status: 'processing', text: 'Encoding MP3 VBR...', progress: 60 });
       let bitrate = settings.mp3Bitrate || '192';
       let vbrFlag = settings.vbrMode ? ['-q:a', '0'] : ['-b:a', `${bitrate}k`];
       
@@ -84,6 +86,7 @@ self.onmessage = async (event) => {
       let subAudioFreq = parseFloat(settings.subAudioInject) || 0;
       
       if (subAudioFreq > 0) {
+        self.postMessage({ status: 'processing', text: 'Injecting Sub-audio...', progress: 80 });
         await ffmpeg.exec(['-i', 'temp.mp3', '-f', 'lavfi', '-i', `sine=frequency=${subAudioFreq}:sample_rate=48000`, '-filter_complex', `[1:a]volume=${subAudioGain}dB[sub];[0:a][sub]amix=inputs=2:duration=first`, 'output.wav']);
       } else {
         await ffmpeg.exec(['-i', 'temp.mp3', 'output.wav']);
@@ -93,8 +96,10 @@ self.onmessage = async (event) => {
       const data = await ffmpeg.readFile('output.wav');
       
       self.postMessage({ status: 'done', resultBuffer: data.buffer, progress: 100 }, [data.buffer]);
+      
     } catch (error) {
-      self.postMessage({ status: 'error', text: error.message, progress: 0 });
+      // JIKA ADA ERROR, AKAN MUNCUL DI LAYAR HP ANDA
+      self.postMessage({ status: 'error', text: error.message || String(error), progress: 0 });
     }
   }
 };
