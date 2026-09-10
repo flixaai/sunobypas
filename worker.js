@@ -45,7 +45,6 @@ self.onmessage = async (event) => {
         });
       }
 
-      // Variabel untuk melacak teks loading agar tidak tertimpa persentase
       let currentStep = "Membaca file audio...";
       
       ffmpeg.on('progress', ({ progress }) => {
@@ -105,9 +104,12 @@ self.onmessage = async (event) => {
         } else {
            res1 = await ffmpeg.exec(['-i', 'input.wav', '-af', filterString, 'temp1.wav']);
         }
-        if (res1 !== 0) throw new Error("Exit code FFmpeg: " + res1);
+        if (res1 !== 0) throw new Error("Exit code: " + res1);
+        
+        // BERSIH-BERSIH RAM: Hapus input.wav karena sudah jadi temp1.wav
+        await ffmpeg.deleteFile('input.wav'); 
       } catch (e) {
-        throw new Error("Mesin Crash di Tahap 1 (Filter): " + e.message);
+        throw new Error("Crash di Tahap 1: " + (e.message || "Memori HP Penuh"));
       }
 
       // ---------------------------------------------------------
@@ -119,9 +121,12 @@ self.onmessage = async (event) => {
         let bitrate = settings.mp3Bitrate || '192';
         let vbrFlag = settings.vbrMode ? ['-q:a', '0'] : ['-b:a', `${bitrate}k`];
         let res2 = await ffmpeg.exec(['-i', 'temp1.wav', ...vbrFlag, '-ar', settings.sampleRate || '48000', 'temp.mp3']);
-        if (res2 !== 0) throw new Error("Exit code FFmpeg: " + res2);
+        if (res2 !== 0) throw new Error("Exit code: " + res2);
+        
+        // BERSIH-BERSIH RAM: Hapus temp1.wav karena sudah jadi temp.mp3
+        await ffmpeg.deleteFile('temp1.wav');
       } catch (e) {
-        throw new Error("Mesin Crash di Tahap 2 (MP3): " + e.message);
+        throw new Error("Crash di Tahap 2: " + (e.message || "Memori HP Penuh"));
       }
 
       // ---------------------------------------------------------
@@ -139,14 +144,20 @@ self.onmessage = async (event) => {
         } else {
           res3 = await ffmpeg.exec(['-i', 'temp.mp3', 'output.wav']);
         }
-        if (res3 !== 0) throw new Error("Exit code FFmpeg: " + res3);
+        if (res3 !== 0) throw new Error("Exit code: " + res3);
+        
+        // BERSIH-BERSIH RAM: Hapus temp.mp3 karena sudah jadi output.wav
+        await ffmpeg.deleteFile('temp.mp3');
       } catch (e) {
-        throw new Error("Mesin Crash di Tahap 3 (Finalisasi): " + e.message);
+        throw new Error("Crash di Tahap 3: " + (e.message || "Memori HP Penuh"));
       }
 
       currentStep = "Menyelesaikan file...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 95 });
       const data = await ffmpeg.readFile('output.wav');
+      
+      // BERSIH-BERSIH RAM TERAKHIR
+      await ffmpeg.deleteFile('output.wav');
       
       self.postMessage({ status: 'done', resultBuffer: data.buffer, progress: 100 }, [data.buffer]);
       
