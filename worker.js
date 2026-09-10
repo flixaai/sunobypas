@@ -64,7 +64,7 @@ self.onmessage = async (event) => {
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
       // =====================================================================
-      // MERACIK FILTER DSP (PITCH, TEMPO, EQ, DLL)
+      // MERACIK FILTER DSP
       // =====================================================================
       let pitchShift = parseFloat(settings.pitch.replace(',', '.')) || 0;
       let tempoPct = (parseFloat(settings.tempo) || 100) / 100;
@@ -90,7 +90,13 @@ self.onmessage = async (event) => {
       }
       if (settings.eqNotch && settings.eqNotch !== '') audioFilters.push(`anequalizer=c0 f=${settings.eqNotch} w=100 g=-20`);
       if (parseFloat(settings.reverbWet) > 0) audioFilters.push(`aecho=0.8:0.9:1000:0.3`);
-      if (parseFloat(settings.silencePad) > 0) audioFilters.push(`apad=pad_dur=${settings.silencePad}`);
+      
+      // PERBAIKAN: Menambahkan keheningan di AWAL lagu (Trik ampuh Bypass Suno)
+      if (parseFloat(settings.silencePad) > 0) {
+         let delayMs = parseFloat(settings.silencePad) * 1000;
+         audioFilters.push(`adelay=${delayMs}|${delayMs}`);
+      }
+      
       if (settings.normalize) audioFilters.push('loudnorm');
 
       let filterString = audioFilters.length > 0 ? audioFilters.join(',') : 'anull';
@@ -103,13 +109,13 @@ self.onmessage = async (event) => {
       try {
         let res1A = await ffmpeg.exec(['-i', 'input.wav', '-af', filterString, 'temp_dsp.wav']);
         if (res1A !== 0) throw new Error("Exit code: " + res1A);
-        await ffmpeg.deleteFile('input.wav'); // Bersihkan input asli
+        await ffmpeg.deleteFile('input.wav'); 
       } catch (e) {
         throw new Error("Crash Tahap 1A (DSP). LOG: " + lastLog);
       }
 
       // ---------------------------------------------------------
-      // TAHAP 1B: TERAPKAN VOCAL BYPASS (Jika dicentang)
+      // TAHAP 1B: TERAPKAN VOCAL BYPASS
       // ---------------------------------------------------------
       currentStep = "Tahap 1B: Menerapkan Vocal Bypass...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 40 });
@@ -121,55 +127,50 @@ self.onmessage = async (event) => {
            const mangleFilter = `[0:a]asplit=2[mid][side];[mid]pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1500:width_type=h:w=2000,flanger=delay=10:depth=10:regen=0:width=71:speed=3:phase=25[vocal];[side]pan=stereo|c0=c0-c1|c1=c1-c0[inst];[inst][vocal]amix=inputs=2:duration=first[out]`;
            res1B = await ffmpeg.exec(['-i', 'temp_dsp.wav', '-filter_complex', mangleFilter, '-map', '[out]', 'temp1.wav']);
         } else {
-           // Jika bypass tidak dicentang, cukup copy file ke tahap selanjutnya
            res1B = await ffmpeg.exec(['-i', 'temp_dsp.wav', '-c', 'copy', 'temp1.wav']);
         }
         if (res1B !== 0) throw new Error("Exit code: " + res1B);
-        await ffmpeg.deleteFile('temp_dsp.wav'); // Bersihkan temp_dsp
+        await ffmpeg.deleteFile('temp_dsp.wav'); 
       } catch (e) {
         throw new Error("Crash Tahap 1B (Bypass). LOG: " + lastLog);
       }
 
       // ---------------------------------------------------------
-      // TAHAP 2: ENCODING MP3
+      // TAHAP 2: ENCODING LANGSUNG KE MP3 (Ukuran Kecil)
       // ---------------------------------------------------------
-      currentStep = "Tahap 2: Encoding MP3 VBR...";
-      self.postMessage({ status: 'processing', text: currentStep, progress: 60 });
+      currentStep = "Tahap Akhir: Encoding MP3 Final...";
+      self.postMessage({ status: 'processing', text: currentStep, progress: 70 });
       try {
         let bitrate = settings.mp3Bitrate || '192';
         let vbrFlag = settings.vbrMode ? ['-q:a', '0'] : ['-b:a', `${bitrate}k`];
-        let res2 = await ffmpeg.exec(['-i', 'temp1.wav', ...vbrFlag, '-ar', settings.sampleRate || '48000', 'temp.mp3']);
-        if (res2 !== 0) throw new Error("Exit code: " + res2);
-        await ffmpeg.deleteFile('temp1.wav');
-      } catch (e) {
-        throw new Error("Crash Tahap 2. LOG: " + lastLog);
-      }
-
-      // ---------------------------------------------------------
-      // TAHAP 3: FINALISASI & SUB-AUDIO
-      // ---------------------------------------------------------
-      currentStep = "Tahap 3: Finalisasi File...";
-      self.postMessage({ status: 'processing', text: currentStep, progress: 80 });
-      try {
         let subAudioGain = settings.subAudioGain || '-60';
         let subAudioFreq = parseFloat(settings.subAudioInject) || 0;
-        let res3;
         
+        let resFinal;
         if (subAudioFreq > 0) {
-          res3 = await ffmpeg.exec(['-i', 'temp.mp3', '-f', 'lavfi', '-i', `sine=frequency=${subAudioFreq}:sample_rate=48000`, '-filter_complex', `[1:a]volume=${subAudioGain}dB[sub];[0:a][sub]amix=inputs=2:duration=first`, 'output.wav']);
+          resFinal = await ffmpeg.exec([
+            '-i', 'temp1.wav', 
+            '-f', 'lavfi', '-i', `sine=frequency=${subAudioFreq}:sample_rate=48000`, 
+            '-filter_complex', `[1:a]volume=${subAudioGain}dB[sub];[0:a][sub]amix=inputs=2:duration=first`, 
+            ...vbrFlag, '-ar', settings.sampleRate || '48000', 
+            'output.mp3' // LANGSUNG JADI MP3
+          ]);
         } else {
-          res3 = await ffmpeg.exec(['-i', 'temp.mp3', 'output.wav']);
+          resFinal = await ffmpeg.exec(['-i', 'temp1.wav', ...vbrFlag, '-ar', settings.sampleRate || '48000', 'output.mp3']);
         }
-        if (res3 !== 0) throw new Error("Exit code: " + res3);
-        await ffmpeg.deleteFile('temp.mp3');
+        
+        if (resFinal !== 0) throw new Error("Exit code: " + resFinal);
+        await ffmpeg.deleteFile('temp1.wav');
       } catch (e) {
-        throw new Error("Crash Tahap 3. LOG: " + lastLog);
+        throw new Error("Crash Tahap 2 (MP3). LOG: " + lastLog);
       }
 
-      currentStep = "Menyelesaikan file...";
+      currentStep = "Menyelesaikan file MP3...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 95 });
-      const data = await ffmpeg.readFile('output.wav');
-      await ffmpeg.deleteFile('output.wav');
+      
+      // BACA FILE MP3
+      const data = await ffmpeg.readFile('output.mp3');
+      await ffmpeg.deleteFile('output.mp3');
       
       self.postMessage({ status: 'done', resultBuffer: data.buffer, progress: 100 }, [data.buffer]);
       
