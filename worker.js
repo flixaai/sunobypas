@@ -8,7 +8,8 @@ if (typeof document === 'undefined') {
   self.document = { 
     currentScript: { src: '' }, 
     baseURI: self.location.href,
-    createElement: function() { return {}; } // Tambahan pengaman
+    createElement: function() { return {}; },
+    getElementsByTagName: function() { return []; } // Pelindung tambahan untuk util.js
   };
 }
 // =====================================================================
