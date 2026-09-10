@@ -1,5 +1,5 @@
 // =====================================================================
-// BENTENG PELINDUNG ENVIRONMENT (SUPER LENGKAP)
+// BENTENG PELINDUNG ENVIRONMENT
 // =====================================================================
 if (typeof window === 'undefined') {
   self.window = self;
@@ -13,7 +13,6 @@ if (typeof document === 'undefined') {
   };
 }
 
-// Mencegah error "exports is not defined" dan "require is not defined" dari util.js
 self.exports = {};
 self.require = function(moduleName) { return {}; };
 // =====================================================================
@@ -27,36 +26,36 @@ self.onmessage = async (event) => {
   
   if (action === 'PROCESS') {
     try {
-      self.postMessage({ status: 'loading', text: 'Memulai sistem Worker...', progress: 2 });
+      const baseURL = self.location.origin;
+      self.postMessage({ status: 'loading', text: 'Menyiapkan sistem...', progress: 2 });
 
       if (typeof self.exports.FFmpegWASM === 'undefined') {
-        self.postMessage({ status: 'loading', text: 'Membaca ffmpeg.js lokal...', progress: 5 });
-        self.importScripts('./ffmpeg.js');
-        self.importScripts('./util.js');
+        self.importScripts(baseURL + '/ffmpeg.js');
+        self.importScripts(baseURL + '/util.js');
       }
 
-      self.postMessage({ status: 'loading', text: 'Inisialisasi FFmpeg...', progress: 10 });
-      
-      // Mengambil mesin FFmpeg dari dalam brankas self.exports buatan kita
       const ffmpeg = new self.exports.FFmpegWASM.FFmpeg();
       const fetchFile = self.exports.fetchFile;
       
       if (!ffmpeg.loaded) {
-        self.postMessage({ status: 'loading', text: 'Memuat ffmpeg-core (30MB)...', progress: 15 });
+        self.postMessage({ status: 'loading', text: 'Memuat mesin AI...', progress: 10 });
         await ffmpeg.load({
-          coreURL: './ffmpeg-core.js',
-          wasmURL: './ffmpeg-core.wasm',
+          coreURL: baseURL + '/ffmpeg-core.js',
+          wasmURL: baseURL + '/ffmpeg-core.wasm',
         });
       }
 
+      // Variabel untuk melacak teks loading agar tidak tertimpa persentase
+      let currentStep = "Membaca file audio...";
+      
       ffmpeg.on('progress', ({ progress }) => {
         let percent = Math.round(progress * 100);
         if (percent > 100) percent = 100;
         if (percent < 0) percent = 0;
-        self.postMessage({ status: 'processing', text: 'Memproses Audio...', progress: percent });
+        self.postMessage({ status: 'processing', text: currentStep, progress: percent });
       });
 
-      self.postMessage({ status: 'processing', text: 'Membaca file audio...', progress: 18 });
+      self.postMessage({ status: 'processing', text: currentStep, progress: 18 });
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
       // =====================================================================
@@ -91,40 +90,68 @@ self.onmessage = async (event) => {
 
       let filterString = audioFilters.length > 0 ? audioFilters.join(',') : 'anull';
 
-      self.postMessage({ status: 'processing', text: 'Menerapkan Filter DSP...', progress: 20 });
-      
-      if (settings.instrumentalOnly === 'Hard' || settings.instrumentalOnly === 'Light') {
-         await ffmpeg.exec(['-i', 'input.wav', '-af', 'pan=stereo|c0=c0-c1|c1=c1-c0', 'temp1.wav']);
-      } else if (settings.lyricBypass && !settings.isInstrumentalSong) {
-         const mangleFilter = `[0:a]asplit=2[mid][side];[mid]pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1500:width_type=h:w=2000,flanger=delay=10:depth=10:regen=0:width=71:speed=3:phase=25[vocal];[side]pan=stereo|c0=c0-c1|c1=c1-c0[inst];[inst][vocal]amix=inputs=2:duration=first[out]`;
-         await ffmpeg.exec(['-i', 'input.wav', '-filter_complex', mangleFilter, '-map', '[out]', 'temp1.wav']);
-      } else {
-         await ffmpeg.exec(['-i', 'input.wav', '-af', filterString, 'temp1.wav']);
+      // ---------------------------------------------------------
+      // TAHAP 1: FILTER AUDIO
+      // ---------------------------------------------------------
+      currentStep = "Tahap 1: Menerapkan Filter DSP...";
+      self.postMessage({ status: 'processing', text: currentStep, progress: 20 });
+      try {
+        let res1;
+        if (settings.instrumentalOnly === 'Hard' || settings.instrumentalOnly === 'Light') {
+           res1 = await ffmpeg.exec(['-i', 'input.wav', '-af', 'pan=stereo|c0=c0-c1|c1=c1-c0', 'temp1.wav']);
+        } else if (settings.lyricBypass && !settings.isInstrumentalSong) {
+           const mangleFilter = `[0:a]asplit=2[mid][side];[mid]pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1500:width_type=h:w=2000,flanger=delay=10:depth=10:regen=0:width=71:speed=3:phase=25[vocal];[side]pan=stereo|c0=c0-c1|c1=c1-c0[inst];[inst][vocal]amix=inputs=2:duration=first[out]`;
+           res1 = await ffmpeg.exec(['-i', 'input.wav', '-filter_complex', mangleFilter, '-map', '[out]', 'temp1.wav']);
+        } else {
+           res1 = await ffmpeg.exec(['-i', 'input.wav', '-af', filterString, 'temp1.wav']);
+        }
+        if (res1 !== 0) throw new Error("Exit code FFmpeg: " + res1);
+      } catch (e) {
+        throw new Error("Mesin Crash di Tahap 1 (Filter): " + e.message);
       }
 
-      self.postMessage({ status: 'processing', text: 'Encoding MP3 VBR...', progress: 60 });
-      let bitrate = settings.mp3Bitrate || '192';
-      let vbrFlag = settings.vbrMode ? ['-q:a', '0'] : ['-b:a', `${bitrate}k`];
-      
-      await ffmpeg.exec(['-i', 'temp1.wav', ...vbrFlag, '-ar', settings.sampleRate || '48000', 'temp.mp3']);
-
-      let subAudioGain = settings.subAudioGain || '-60';
-      let subAudioFreq = parseFloat(settings.subAudioInject) || 0;
-      
-      if (subAudioFreq > 0) {
-        self.postMessage({ status: 'processing', text: 'Injecting Sub-audio...', progress: 80 });
-        await ffmpeg.exec(['-i', 'temp.mp3', '-f', 'lavfi', '-i', `sine=frequency=${subAudioFreq}:sample_rate=48000`, '-filter_complex', `[1:a]volume=${subAudioGain}dB[sub];[0:a][sub]amix=inputs=2:duration=first`, 'output.wav']);
-      } else {
-        await ffmpeg.exec(['-i', 'temp.mp3', 'output.wav']);
+      // ---------------------------------------------------------
+      // TAHAP 2: ENCODING MP3
+      // ---------------------------------------------------------
+      currentStep = "Tahap 2: Encoding MP3 VBR...";
+      self.postMessage({ status: 'processing', text: currentStep, progress: 60 });
+      try {
+        let bitrate = settings.mp3Bitrate || '192';
+        let vbrFlag = settings.vbrMode ? ['-q:a', '0'] : ['-b:a', `${bitrate}k`];
+        let res2 = await ffmpeg.exec(['-i', 'temp1.wav', ...vbrFlag, '-ar', settings.sampleRate || '48000', 'temp.mp3']);
+        if (res2 !== 0) throw new Error("Exit code FFmpeg: " + res2);
+      } catch (e) {
+        throw new Error("Mesin Crash di Tahap 2 (MP3): " + e.message);
       }
 
-      self.postMessage({ status: 'processing', text: 'Menyelesaikan file...', progress: 95 });
+      // ---------------------------------------------------------
+      // TAHAP 3: FINALISASI & SUB-AUDIO
+      // ---------------------------------------------------------
+      currentStep = "Tahap 3: Finalisasi File...";
+      self.postMessage({ status: 'processing', text: currentStep, progress: 80 });
+      try {
+        let subAudioGain = settings.subAudioGain || '-60';
+        let subAudioFreq = parseFloat(settings.subAudioInject) || 0;
+        let res3;
+        
+        if (subAudioFreq > 0) {
+          res3 = await ffmpeg.exec(['-i', 'temp.mp3', '-f', 'lavfi', '-i', `sine=frequency=${subAudioFreq}:sample_rate=48000`, '-filter_complex', `[1:a]volume=${subAudioGain}dB[sub];[0:a][sub]amix=inputs=2:duration=first`, 'output.wav']);
+        } else {
+          res3 = await ffmpeg.exec(['-i', 'temp.mp3', 'output.wav']);
+        }
+        if (res3 !== 0) throw new Error("Exit code FFmpeg: " + res3);
+      } catch (e) {
+        throw new Error("Mesin Crash di Tahap 3 (Finalisasi): " + e.message);
+      }
+
+      currentStep = "Menyelesaikan file...";
+      self.postMessage({ status: 'processing', text: currentStep, progress: 95 });
       const data = await ffmpeg.readFile('output.wav');
       
       self.postMessage({ status: 'done', resultBuffer: data.buffer, progress: 100 }, [data.buffer]);
       
     } catch (error) {
-      self.postMessage({ status: 'error', text: 'Error: ' + (error.message || String(error)), progress: 0 });
+      self.postMessage({ status: 'error', text: error.message || String(error), progress: 0 });
     }
   }
 };
