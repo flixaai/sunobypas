@@ -1,3 +1,14 @@
+// =====================================================================
+// TRIK MANIPULASI AGAR FFMPEG.JS TIDAK CRASH DI DALAM WORKER
+// =====================================================================
+if (typeof document === 'undefined') {
+  self.document = { currentScript: { src: '' } };
+}
+if (typeof window === 'undefined') {
+  self.window = self;
+}
+// =====================================================================
+
 self.onerror = function(e) {
   self.postMessage({ status: 'error', text: 'Error Sistem: ' + e.message, progress: 0 });
 };
@@ -9,13 +20,11 @@ self.onmessage = async (event) => {
     try {
       self.postMessage({ status: 'loading', text: 'Menyiapkan sistem...', progress: 2 });
 
-      // Mengambil alamat asli website Anda (contoh: https://sunobypas.vercel.app)
       const baseURL = self.location.origin;
 
       if (typeof self.FFmpegWASM === 'undefined') {
         try {
           self.postMessage({ status: 'loading', text: 'Memuat library lokal...', progress: 5 });
-          // Memanggil file murni dari server Anda sendiri
           self.importScripts(baseURL + '/ffmpeg.js');
           self.importScripts(baseURL + '/util.js');
         } catch (err) {
@@ -30,7 +39,6 @@ self.onmessage = async (event) => {
       if (!ffmpeg.loaded) {
         try {
           self.postMessage({ status: 'loading', text: 'Memuat file AI (30MB)...', progress: 12 });
-          // Memanggil file core dan wasm murni dari server Anda sendiri
           await ffmpeg.load({
             coreURL: baseURL + '/ffmpeg-core.js',
             wasmURL: baseURL + '/ffmpeg-core.wasm',
