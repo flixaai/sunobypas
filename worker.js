@@ -37,7 +37,6 @@ self.onmessage = async (event) => {
       const ffmpeg = new self.exports.FFmpegWASM.FFmpeg();
       const fetchFile = self.exports.fetchFile;
       
-      // PEREKAM LOG MESIN (Untuk menangkap pesan asli FFmpeg jika error)
       let lastLog = "";
       ffmpeg.on('log', ({ message }) => {
         console.log(message);
@@ -61,9 +60,12 @@ self.onmessage = async (event) => {
         self.postMessage({ status: 'processing', text: currentStep, progress: percent });
       });
 
-      self.postMessage({ status: 'processing', text: currentStep, progress: 18 });
+      self.postMessage({ status: 'processing', text: currentStep, progress: 15 });
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
+      // =====================================================================
+      // MERACIK FILTER DSP (PITCH, TEMPO, EQ, DLL)
+      // =====================================================================
       let pitchShift = parseFloat(settings.pitch.replace(',', '.')) || 0;
       let tempoPct = (parseFloat(settings.tempo) || 100) / 100;
       let rateMultiplier = Math.pow(2, pitchShift / 12);
@@ -94,28 +96,42 @@ self.onmessage = async (event) => {
       let filterString = audioFilters.length > 0 ? audioFilters.join(',') : 'anull';
 
       // ---------------------------------------------------------
-      // TAHAP 1
+      // TAHAP 1A: TERAPKAN PITCH, TEMPO, & DSP DASAR
       // ---------------------------------------------------------
-      currentStep = "Tahap 1: Menerapkan Filter DSP...";
+      currentStep = "Tahap 1A: Menerapkan Pitch & Tempo...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 20 });
       try {
-        let res1;
-        if (settings.instrumentalOnly === 'Hard' || settings.instrumentalOnly === 'Light') {
-           res1 = await ffmpeg.exec(['-i', 'input.wav', '-af', 'pan=stereo|c0=c0-c1|c1=c1-c0', 'temp1.wav']);
-        } else if (settings.lyricBypass && !settings.isInstrumentalSong) {
-           const mangleFilter = `[0:a]asplit=2[mid][side];[mid]pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1500:width_type=h:w=2000,flanger=delay=10:depth=10:regen=0:width=71:speed=3:phase=25[vocal];[side]pan=stereo|c0=c0-c1|c1=c1-c0[inst];[inst][vocal]amix=inputs=2:duration=first[out]`;
-           res1 = await ffmpeg.exec(['-i', 'input.wav', '-filter_complex', mangleFilter, '-map', '[out]', 'temp1.wav']);
-        } else {
-           res1 = await ffmpeg.exec(['-i', 'input.wav', '-af', filterString, 'temp1.wav']);
-        }
-        if (res1 !== 0) throw new Error("Exit code: " + res1);
-        await ffmpeg.deleteFile('input.wav'); 
+        let res1A = await ffmpeg.exec(['-i', 'input.wav', '-af', filterString, 'temp_dsp.wav']);
+        if (res1A !== 0) throw new Error("Exit code: " + res1A);
+        await ffmpeg.deleteFile('input.wav'); // Bersihkan input asli
       } catch (e) {
-        throw new Error("Crash Tahap 1. LOG: " + lastLog + " | Pesan: " + e.message);
+        throw new Error("Crash Tahap 1A (DSP). LOG: " + lastLog);
       }
 
       // ---------------------------------------------------------
-      // TAHAP 2
+      // TAHAP 1B: TERAPKAN VOCAL BYPASS (Jika dicentang)
+      // ---------------------------------------------------------
+      currentStep = "Tahap 1B: Menerapkan Vocal Bypass...";
+      self.postMessage({ status: 'processing', text: currentStep, progress: 40 });
+      try {
+        let res1B;
+        if (settings.instrumentalOnly === 'Hard' || settings.instrumentalOnly === 'Light') {
+           res1B = await ffmpeg.exec(['-i', 'temp_dsp.wav', '-af', 'pan=stereo|c0=c0-c1|c1=c1-c0', 'temp1.wav']);
+        } else if (settings.lyricBypass && !settings.isInstrumentalSong) {
+           const mangleFilter = `[0:a]asplit=2[mid][side];[mid]pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1500:width_type=h:w=2000,flanger=delay=10:depth=10:regen=0:width=71:speed=3:phase=25[vocal];[side]pan=stereo|c0=c0-c1|c1=c1-c0[inst];[inst][vocal]amix=inputs=2:duration=first[out]`;
+           res1B = await ffmpeg.exec(['-i', 'temp_dsp.wav', '-filter_complex', mangleFilter, '-map', '[out]', 'temp1.wav']);
+        } else {
+           // Jika bypass tidak dicentang, cukup copy file ke tahap selanjutnya
+           res1B = await ffmpeg.exec(['-i', 'temp_dsp.wav', '-c', 'copy', 'temp1.wav']);
+        }
+        if (res1B !== 0) throw new Error("Exit code: " + res1B);
+        await ffmpeg.deleteFile('temp_dsp.wav'); // Bersihkan temp_dsp
+      } catch (e) {
+        throw new Error("Crash Tahap 1B (Bypass). LOG: " + lastLog);
+      }
+
+      // ---------------------------------------------------------
+      // TAHAP 2: ENCODING MP3
       // ---------------------------------------------------------
       currentStep = "Tahap 2: Encoding MP3 VBR...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 60 });
@@ -126,11 +142,11 @@ self.onmessage = async (event) => {
         if (res2 !== 0) throw new Error("Exit code: " + res2);
         await ffmpeg.deleteFile('temp1.wav');
       } catch (e) {
-        throw new Error("Crash Tahap 2. LOG: " + lastLog + " | Pesan: " + e.message);
+        throw new Error("Crash Tahap 2. LOG: " + lastLog);
       }
 
       // ---------------------------------------------------------
-      // TAHAP 3
+      // TAHAP 3: FINALISASI & SUB-AUDIO
       // ---------------------------------------------------------
       currentStep = "Tahap 3: Finalisasi File...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 80 });
@@ -147,7 +163,7 @@ self.onmessage = async (event) => {
         if (res3 !== 0) throw new Error("Exit code: " + res3);
         await ffmpeg.deleteFile('temp.mp3');
       } catch (e) {
-        throw new Error("Crash Tahap 3. LOG: " + lastLog + " | Pesan: " + e.message);
+        throw new Error("Crash Tahap 3. LOG: " + lastLog);
       }
 
       currentStep = "Menyelesaikan file...";
