@@ -64,7 +64,7 @@ self.onmessage = async (event) => {
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
       // =====================================================================
-      // MERACIK FILTER DSP (STEALTH MODE - KUALITAS JERNIH)
+      // MERACIK FILTER DSP
       // =====================================================================
       let pitchShift = parseFloat(settings.pitch.replace(',', '.')) || 0;
       let tempoPct = (parseFloat(settings.tempo) || 100) / 100;
@@ -90,12 +90,10 @@ self.onmessage = async (event) => {
       }
       if (settings.eqNotch && settings.eqNotch !== '') audioFilters.push(`anequalizer=c0 f=${settings.eqNotch} w=100 g=-20`);
       if (parseFloat(settings.reverbWet) > 0) audioFilters.push(`aecho=0.8:0.9:1000:0.3`);
-      
       if (parseFloat(settings.silencePad) > 0) {
          let delayMs = parseFloat(settings.silencePad) * 1000;
          audioFilters.push(`adelay=${delayMs}|${delayMs}`);
       }
-      
       if (settings.normalize) audioFilters.push('loudnorm');
 
       let filterString = audioFilters.length > 0 ? audioFilters.join(',') : 'anull';
@@ -114,16 +112,17 @@ self.onmessage = async (event) => {
       }
 
       // ---------------------------------------------------------
-      // TAHAP 1B: TERAPKAN VOCAL BYPASS (JIKA DICENTANG)
+      // TAHAP 1B: SUPER ALIEN VOCAL MANGLE (PENGHANCUR SUNO)
       // ---------------------------------------------------------
-      currentStep = "Tahap 1B: Memproses Vokal...";
+      currentStep = "Tahap 1B: Menghancurkan Sidik Jari Vokal...";
       self.postMessage({ status: 'processing', text: currentStep, progress: 40 });
       try {
         let res1B;
         if (settings.instrumentalOnly === 'Hard' || settings.instrumentalOnly === 'Light') {
            res1B = await ffmpeg.exec(['-i', 'temp_dsp.wav', '-af', 'pan=stereo|c0=c0-c1|c1=c1-c0', 'temp1.wav']);
         } else if (settings.lyricBypass && !settings.isInstrumentalSong) {
-           const mangleFilter = `[0:a]asplit=2[mid][side];[mid]pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1500:width_type=h:w=2000,flanger=delay=10:depth=10:regen=0:width=71:speed=3:phase=25[vocal];[side]pan=stereo|c0=c0-c1|c1=c1-c0[inst];[inst][vocal]amix=inputs=2:duration=first[out]`;
+           // INI DIA RACIKAN BARUNYA: Ekstrak vokal -> Beri efek Chorus berat & Vibrato ekstrim -> Gabung lagi
+           const mangleFilter = `[0:a]asplit=2[mid][side];[mid]pan=mono|c0=0.5*c0+0.5*c1,bandpass=f=1200:width_type=h:w=2500,chorus=0.5:0.9:50|60|40:0.4|0.32|0.3:2|2.3|1.3:2|1|2,vibrato=f=7.0:d=0.9[vocal];[side]pan=stereo|c0=c0-c1|c1=c1-c0[inst];[inst][vocal]amix=inputs=2:duration=first[out]`;
            res1B = await ffmpeg.exec(['-i', 'temp_dsp.wav', '-filter_complex', mangleFilter, '-map', '[out]', 'temp1.wav']);
         } else {
            res1B = await ffmpeg.exec(['-i', 'temp_dsp.wav', '-c', 'copy', 'temp1.wav']);
