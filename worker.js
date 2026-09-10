@@ -1,5 +1,5 @@
 // =====================================================================
-// TRIK MANIPULASI ENVIRONMENT (MENCEGAH ERROR "document is not defined")
+// BENTENG PELINDUNG ENVIRONMENT (SUPER LENGKAP)
 // =====================================================================
 if (typeof window === 'undefined') {
   self.window = self;
@@ -9,9 +9,13 @@ if (typeof document === 'undefined') {
     currentScript: { src: '' }, 
     baseURI: self.location.href,
     createElement: function() { return {}; },
-    getElementsByTagName: function() { return []; } // Pelindung tambahan untuk util.js
+    getElementsByTagName: function() { return []; }
   };
 }
+
+// Mencegah error "exports is not defined" dan "require is not defined" dari util.js
+self.exports = {};
+self.require = function(moduleName) { return {}; };
 // =====================================================================
 
 self.onerror = function(e) {
@@ -25,15 +29,17 @@ self.onmessage = async (event) => {
     try {
       self.postMessage({ status: 'loading', text: 'Memulai sistem Worker...', progress: 2 });
 
-      if (typeof self.FFmpegWASM === 'undefined') {
+      if (typeof self.exports.FFmpegWASM === 'undefined') {
         self.postMessage({ status: 'loading', text: 'Membaca ffmpeg.js lokal...', progress: 5 });
         self.importScripts('./ffmpeg.js');
         self.importScripts('./util.js');
       }
 
       self.postMessage({ status: 'loading', text: 'Inisialisasi FFmpeg...', progress: 10 });
-      const ffmpeg = new self.FFmpegWASM.FFmpeg();
-      const fetchFile = self.FFmpegUtil.fetchFile;
+      
+      // Mengambil mesin FFmpeg dari dalam brankas self.exports buatan kita
+      const ffmpeg = new self.exports.FFmpegWASM.FFmpeg();
+      const fetchFile = self.exports.fetchFile;
       
       if (!ffmpeg.loaded) {
         self.postMessage({ status: 'loading', text: 'Memuat ffmpeg-core (30MB)...', progress: 15 });
