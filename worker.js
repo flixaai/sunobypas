@@ -1,14 +1,5 @@
-// =====================================================================
-// MENGGUNAKAN FFMPEG LOKAL (DARI HOSTING VERCEL SENDIRI)
-// =====================================================================
-const baseURL = self.location.origin;
-
-// Import script dari Vercel kita sendiri
-self.importScripts(baseURL + '/ffmpeg.js');
-self.importScripts(baseURL + '/util.js');
-
 self.onerror = function(e) {
-  self.postMessage({ status: 'error', text: 'Error Sistem: ' + e.message, progress: 0 });
+  self.postMessage({ status: 'error', text: 'Fatal Worker Error: ' + (e.message || 'Unknown'), progress: 0 });
 };
 
 self.onmessage = async (event) => {
@@ -16,23 +7,27 @@ self.onmessage = async (event) => {
   
   if (action === 'PROCESS') {
     try {
-      self.postMessage({ status: 'loading', text: 'Menyiapkan sistem lokal...', progress: 5 });
+      // Pesan pertama ini PASTI muncul jika Worker berhasil hidup
+      self.postMessage({ status: 'loading', text: 'Memulai sistem Worker...', progress: 2 });
 
+      // Memanggil file dari Vercel (dipindah ke dalam try-catch agar aman)
+      if (typeof self.FFmpegWASM === 'undefined') {
+        self.postMessage({ status: 'loading', text: 'Membaca ffmpeg.js lokal...', progress: 5 });
+        // Menggunakan path relatif './' yang lebih stabil di Vercel
+        self.importScripts('./ffmpeg.js');
+        self.importScripts('./util.js');
+      }
+
+      self.postMessage({ status: 'loading', text: 'Inisialisasi FFmpeg...', progress: 10 });
       const ffmpeg = new self.FFmpegWASM.FFmpeg();
       const fetchFile = self.FFmpegUtil.fetchFile;
       
       if (!ffmpeg.loaded) {
-        try {
-          self.postMessage({ status: 'loading', text: 'Memuat mesin AI (30MB) dari Vercel...', progress: 10 });
-          
-          // Load core dari Vercel kita sendiri
-          await ffmpeg.load({
-            coreURL: baseURL + '/ffmpeg-core.js',
-            wasmURL: baseURL + '/ffmpeg-core.wasm',
-          });
-        } catch (err) {
-          throw new Error("Gagal memuat ffmpeg-core lokal. Error: " + err.message);
-        }
+        self.postMessage({ status: 'loading', text: 'Memuat ffmpeg-core (30MB)...', progress: 15 });
+        await ffmpeg.load({
+          coreURL: './ffmpeg-core.js',
+          wasmURL: './ffmpeg-core.wasm',
+        });
       }
 
       ffmpeg.on('progress', ({ progress }) => {
@@ -42,7 +37,7 @@ self.onmessage = async (event) => {
         self.postMessage({ status: 'processing', text: 'Memproses Audio...', progress: percent });
       });
 
-      self.postMessage({ status: 'processing', text: 'Membaca file audio...', progress: 15 });
+      self.postMessage({ status: 'processing', text: 'Membaca file audio...', progress: 18 });
       await ffmpeg.writeFile('input.wav', await fetchFile(audioFile));
 
       // =====================================================================
@@ -110,7 +105,8 @@ self.onmessage = async (event) => {
       self.postMessage({ status: 'done', resultBuffer: data.buffer, progress: 100 }, [data.buffer]);
       
     } catch (error) {
-      self.postMessage({ status: 'error', text: error.message || String(error), progress: 0 });
+      // Jika gagal, errornya akan ditangkap di sini dan dimunculkan ke layar HP!
+      self.postMessage({ status: 'error', text: 'Error: ' + (error.message || String(error)), progress: 0 });
     }
   }
 };
